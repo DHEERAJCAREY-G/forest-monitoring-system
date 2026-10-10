@@ -104,3 +104,52 @@ Please review the monitoring dashboard for more information.
             print(f"[Email Service SMTP Error] {e}")
 
     return True
+
+def send_deforestation_alert_email(
+    recipient_email: str,
+    location_name: str,
+    lat: float,
+    lng: float,
+    ndvi_drop: float
+) -> bool:
+    """
+    Sends a Deforestation Alert Email notification.
+    """
+    timestamp_str = datetime.datetime.now().strftime("%d %b %Y, %I:%M %p")
+    subject = "⚠️ Deforestation Alert"
+
+    message_body = f"""Deforestation has been detected in one of your monitored forest areas.
+
+Location: {location_name} ({lat:.6f}, {lng:.6f})
+NDVI Drop: {ndvi_drop:.4f}
+Detected: {timestamp_str}
+
+Please review the monitoring dashboard for more information.
+"""
+
+    print("\n" + "=" * 60)
+    print(f"DEFORESTATION EMAIL NOTIFICATION DISPATCH -> {recipient_email}")
+    print("=" * 60)
+    print(f"Subject: {subject}")
+    print(message_body)
+    print("=" * 60 + "\n")
+
+    if settings.SMTP_USER and settings.SMTP_PASSWORD:
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = settings.ALERT_EMAIL_SENDER
+            msg['To'] = recipient_email
+            msg['Subject'] = subject
+            msg.attach(MIMEText(message_body, 'plain'))
+
+            server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT)
+            server.starttls()
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            server.send_message(msg)
+            server.quit()
+            print(f"[Email Service] Successfully sent SMTP email to {recipient_email}")
+        except Exception as e:
+            print(f"[Email Service SMTP Error] {e}")
+
+    return True
+

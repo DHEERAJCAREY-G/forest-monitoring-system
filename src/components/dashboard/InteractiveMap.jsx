@@ -107,7 +107,7 @@ export const InteractiveMap = ({ monitoredLocations, onAddLocation }) => {
     <div className="space-y-4">
       
       {/* Map Control Bar */}
-      <div className="p-4 rounded-2xl glass-panel border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
           <h3 className="text-base font-bold text-white flex items-center space-x-2">
             <Navigation className="w-4 h-4 text-emerald-400" />
@@ -151,9 +151,9 @@ export const InteractiveMap = ({ monitoredLocations, onAddLocation }) => {
           scrollWheelZoom={true}
           style={{ height: '100%', width: '100%' }}
         >
-          {/* ESRI World Imagery / OpenStreetMap Tiles */}
+          {/* OpenStreetMap Tiles */}
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
@@ -186,7 +186,7 @@ export const InteractiveMap = ({ monitoredLocations, onAddLocation }) => {
       </div>
 
       {/* Selected Coordinates Form Box */}
-      <form onSubmit={handleAddCurrent} className="p-4 rounded-2xl glass-card border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <form onSubmit={handleAddCurrent} className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full sm:w-auto">
           <div className="flex items-center space-x-2 text-xs font-mono bg-slate-950 px-3 py-2 rounded-xl border border-slate-800">
             <MapPin className="w-4 h-4 text-amber-400 shrink-0" />

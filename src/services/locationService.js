@@ -97,6 +97,7 @@ export const addMonitoredLocation = async (userId, locationData, userEmail = '')
     riskLevel: evalData ? evalData.prediction.risk_level : null,
     riskProbability: evalData ? evalData.prediction.risk_probability : null,
     forestHealth: evalData ? `${100 - Math.round(evalData.prediction.risk_probability * 30)}% Vegetation Density` : null,
+    weatherData: evalData ? evalData.weather_telemetry : null,
     deforestationAlerts: 'No active alerts'
   };
 

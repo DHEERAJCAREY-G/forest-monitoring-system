@@ -20,17 +20,11 @@ export const Navbar = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         
         {/* Logo & Brand */}
-        <Link to="/" className="flex items-center space-x-3 group">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-800 p-0.5 shadow-lg shadow-emerald-950/30 group-hover:shadow-emerald-500/20 transition-all duration-300">
-            <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-              <TreePine className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform duration-300" />
-            </div>
-          </div>
-          <div>
-            <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-200 bg-clip-text text-transparent">
-              Forest Monitoring System
-            </span>
-          </div>
+        <Link to="/" className="flex items-center space-x-2">
+          <TreePine className="w-6 h-6 text-emerald-500" />
+          <span className="font-bold text-lg tracking-tight text-white">
+            Forest Monitoring System
+          </span>
         </Link>
 
         {/* Navigation Actions */}

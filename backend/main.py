@@ -4,7 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.inference import predictor, PredictionInput
 from backend.config import settings
 from backend.weather_service import get_weather_provider
-from backend.email_service import send_fire_alert_email, mark_location_below_threshold
+from backend.email_service import send_fire_alert_email, mark_location_below_threshold, send_deforestation_alert_email
+from backend.ee_service import initialize_ee, detect_deforestation
+
+# Initialize Earth Engine
+initialize_ee()
 
 app = FastAPI(
     title="Intelligent Forest Monitoring System - Inference & Alert API",
@@ -102,6 +106,32 @@ def evaluate_location_weather(lat: float, lng: float, location_name: str = "Fore
         "alert_triggered": alert_created,
         "email_dispatched": email_sent
     }
+
+@app.get("/api/deforestation/detect")
+def check_deforestation(lat: float, lng: float, start_date: str = '2022-01-01', end_date: str = '2022-12-31', location_name: str = "Forest Region", recipient_email: str = "user@forestmonitoring.org"):
+    """
+    Check for deforestation in a given region using Earth Engine.
+    """
+    result = detect_deforestation(lat, lng, start_date, end_date)
+    
+    # If there's an error, just return it
+    if "error" in result:
+        return result
+    
+    # Check if deforestation was detected and send alert email
+    if result.get("deforestation_detected", False):
+        send_deforestation_alert_email(
+            recipient_email=recipient_email,
+            location_name=location_name,
+            lat=lat,
+            lng=lng,
+            ndvi_drop=result.get("ndvi_drop", 0.0)
+        )
+        result["email_dispatched"] = True
+    else:
+        result["email_dispatched"] = False
+        
+    return result
 
 if __name__ == "__main__":
     import uvicorn
