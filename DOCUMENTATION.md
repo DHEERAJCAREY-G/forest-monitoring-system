@@ -148,7 +148,33 @@ When `risk_score >= FIRE_RISK_THRESHOLD`, an alert payload is constructed:
   - `name`: String
   - `lat`: Number
   - `lng`: Number
+  - `radiusKm`: Number (e.g. 5.0)
+  - `areaHectares`: Number (e.g. 7853.98)
   - `riskScore`: Number (0-100)
   - `riskLevel`: String (HIGH/MEDIUM/LOW)
+  - `deforestationStatus`: String (STABLE/WARNING/ALERT)
+  - `deforestationLossHectares`: Number
+  - `deforestationLossPercentage`: Number
+  - `baselineNdvi`: Number
+  - `recentNdvi`: Number
+  - `deforestationConfidence`: Number
   - `status`: String ("ACTIVE")
   - `lastUpdated`: Timestamp
+
+## 16. Deforestation Detection Pipeline (Sentinel-2 & Earth Engine)
+- **Dataset**: `COPERNICUS/S2_SR_HARMONIZED` (Sentinel-2 MSI Surface Reflectance Harmonized)
+- **Cloud & Shadow Masking**: QA60 opaque/cirrus bitmask (`bits 10 & 11`) combined with Scene Classification Layer (SCL) filtering out shadows and clouds.
+- **Vegetation Index**: Normalized Difference Vegetation Index (NDVI) at 10m resolution:
+  $$\text{NDVI} = \frac{\text{B8 (NIR)} - \text{B4 (Red)}}{\text{B8 (NIR)} + \text{B4 (Red)}}$$
+- **Canopy Change Detection**: Compares historical baseline composite (180-day window) with recent observations (past 30 days):
+  $$\Delta\text{NDVI} = \text{Baseline NDVI} - \text{Recent NDVI}$$
+- **Thresholds**:
+  - `DEFORESTATION_LOSS_THRESHOLD_PERCENT`: 10.0%
+  - `DEFORESTATION_NDVI_DROP_THRESHOLD`: 0.15
+- **Monitoring Area Selection**:
+  - Interactive map supports defined monitoring radius (1 km, 2 km, 5 km, 10 km) rendered as interactive boundary circles.
+  - Total area computed as $\text{Area} = \pi r^2 \times 100\text{ ha}$.
+- **Alert Dispatch & Deduplication**:
+  - Subject: `🚨 Forest Deforestation Alert — Monitored Area`
+  - Automated deduplication with 24-hour cooldown (`deforest_{userId}_{locationId}`).
+- **Dual-Mode Engine**: Live Google Earth Engine execution (`ee.Initialize()`) with high-fidelity Sentinel-2 analytical simulation fallback when Earth Engine credentials are being configured.

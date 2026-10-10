@@ -10,7 +10,10 @@ import {
   Info, 
   RefreshCw,
   Clock,
-  AlertTriangle
+  AlertTriangle,
+  Satellite,
+  Compass,
+  Layers
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -19,7 +22,8 @@ import {
   getUserMonitoredLocations, 
   addMonitoredLocation, 
   removeMonitoredLocation,
-  fetchLocationPrediction
+  fetchLocationPrediction,
+  fetchLocationDeforestation
 } from '../services/locationService';
 import Spinner from '../components/common/Spinner';
 
@@ -64,32 +68,52 @@ export const DashboardPage = () => {
 
   const handleRefreshPrediction = async (loc) => {
     setEvaluatingId(loc.id);
-    const evalData = await fetchLocationPrediction(
-      loc.lat, 
-      loc.lng, 
-      loc.name, 
-      currentUser.uid, 
-      loc.id, 
-      currentUser.email
-    );
+    const radius = loc.radiusKm || 5.0;
 
-    if (evalData) {
-      const updated = monitoredLocations.map((item) => {
-        if (item.id === loc.id) {
-          return {
-            ...item,
-            lastUpdated: new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-            riskScore: evalData.prediction.risk_score,
-            riskLevel: evalData.prediction.risk_level,
-            riskProbability: evalData.prediction.risk_probability,
-            forestHealth: `${100 - Math.round(evalData.prediction.risk_probability * 30)}% Vegetation Cover`
-          };
-        }
-        return item;
-      });
-      setMonitoredLocations(updated);
-      localStorage.setItem('forest_monitoring_locations_' + currentUser.uid, JSON.stringify(updated));
-    }
+    const [evalData, deforestData] = await Promise.all([
+      fetchLocationPrediction(
+        loc.lat, 
+        loc.lng, 
+        loc.name, 
+        currentUser.uid, 
+        loc.id, 
+        currentUser.email
+      ),
+      fetchLocationDeforestation(
+        loc.lat,
+        loc.lng,
+        radius,
+        loc.name,
+        currentUser.uid,
+        loc.id,
+        currentUser.email
+      )
+    ]);
+
+    const updated = monitoredLocations.map((item) => {
+      if (item.id === loc.id) {
+        return {
+          ...item,
+          lastUpdated: new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+          riskScore: evalData ? evalData.prediction.risk_score : item.riskScore,
+          riskLevel: evalData ? evalData.prediction.risk_level : item.riskLevel,
+          riskProbability: evalData ? evalData.prediction.risk_probability : item.riskProbability,
+          forestHealth: deforestData ? `${100 - Math.round(deforestData.analysis.forest_loss_percentage)}% Canopy Density` : item.forestHealth,
+          deforestationStatus: deforestData ? deforestData.analysis.status : item.deforestationStatus,
+          deforestationLossHectares: deforestData ? deforestData.analysis.forest_loss_hectares : item.deforestationLossHectares,
+          deforestationLossPercentage: deforestData ? deforestData.analysis.forest_loss_percentage : item.deforestationLossPercentage,
+          baselineNdvi: deforestData ? deforestData.analysis.baseline_ndvi : item.baselineNdvi,
+          recentNdvi: deforestData ? deforestData.analysis.recent_ndvi : item.recentNdvi,
+          deforestationConfidence: deforestData ? deforestData.analysis.confidence_score : item.deforestationConfidence,
+          deforestationEvidence: deforestData ? deforestData.analysis.evidence : item.deforestationEvidence,
+          deforestationAlerts: deforestData?.alert_triggered ? 'Active Deforestation Alert' : 'No active alerts'
+        };
+      }
+      return item;
+    });
+
+    setMonitoredLocations(updated);
+    localStorage.setItem('forest_monitoring_locations_' + currentUser.uid, JSON.stringify(updated));
     setEvaluatingId(null);
   };
 
@@ -100,7 +124,13 @@ export const DashboardPage = () => {
 
   // Compute aggregated stats
   const totalLocations = monitoredLocations.length;
-  const highRiskCount = monitoredLocations.filter(l => l.riskLevel === 'HIGH').length;
+  const highRiskFireCount = monitoredLocations.filter(l => l.riskLevel === 'HIGH').length;
+  const deforestationAlertCount = monitoredLocations.filter(l => l.deforestationStatus === 'ALERT').length;
+  const totalAlertsCount = highRiskFireCount + deforestationAlertCount;
+  const totalHectaresMonitored = Math.round(
+    monitoredLocations.reduce((sum, l) => sum + (l.areaHectares || (Math.PI * Math.pow(l.radiusKm || 5.0, 2) * 100)), 0)
+  );
+
   const avgRiskScore = totalLocations > 0
     ? Math.round(monitoredLocations.reduce((sum, l) => sum + (l.riskScore || 0), 0) / totalLocations)
     : null;
@@ -143,34 +173,34 @@ export const DashboardPage = () => {
       {/* System Information Notice */}
       <div className="p-6 rounded-2xl bg-emerald-950/30 border border-emerald-800/40 backdrop-blur-md flex items-start space-x-4">
         <div className="p-3 rounded-xl bg-emerald-900/40 text-emerald-400 border border-emerald-700/50 shrink-0">
-          <Info className="w-6 h-6" />
+          <Satellite className="w-6 h-6" />
         </div>
         <div className="space-y-1">
           <h3 className="text-base font-bold text-emerald-200">
-            Wildfire Monitoring & XGBoost Predictive Pipeline
+            Wildfire (XGBoost) & Deforestation (Sentinel-2 Harmonized) Monitoring Pipeline
           </h3>
           <p className="text-xs text-slate-300 leading-relaxed">
-            Target forest locations are associated with your account UID in Firestore. Real-time weather telemetry is evaluated against the trained XGBoost model to predict fire risk probability and score. Alerts are automatically dispatched if the risk score crosses the configured threshold.
+            Target forest zones are bounded with user-defined monitoring radii and synchronized under your account UID in Firestore. The system executes dual-pipeline intelligence: real-time meteorological telemetry evaluated by XGBoost for wildfire risk, and Sentinel-2 cloud-masked Surface Reflectance composites evaluated for canopy loss (Delta-NDVI). Alerts are automatically dispatched if risk or deforestation thresholds are crossed.
           </p>
         </div>
       </div>
 
       {/* Environmental Information Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         
         {/* Card 1: Forest Health */}
         <div className="p-6 rounded-2xl glass-card space-y-4 border border-slate-800">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Forest Health Information</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Canopy Health</span>
             <div className="p-2 rounded-lg bg-emerald-950 text-emerald-400 border border-emerald-800/40">
               <TreePine className="w-5 h-5" />
             </div>
           </div>
           <div>
             <span className="text-3xl font-extrabold font-mono text-emerald-400">
-              {totalLocations > 0 ? `${100 - (avgRiskScore ? Math.round(avgRiskScore * 0.2) : 5)}%` : 'Waiting for monitoring data'}
+              {totalLocations > 0 ? (deforestationAlertCount > 0 ? 'WARNING' : 'HEALTHY') : 'Waiting for monitoring data'}
             </span>
-            <p className="text-xs text-slate-400 mt-1">Vegetation canopy health across monitored zones</p>
+            <p className="text-xs text-slate-400 mt-1">Vegetation canopy status across zones</p>
           </div>
         </div>
 
@@ -203,12 +233,32 @@ export const DashboardPage = () => {
             </div>
           </div>
           <div>
-            {highRiskCount > 0 ? (
-              <span className="text-3xl font-extrabold font-mono text-red-400">{highRiskCount} HIGH RISK</span>
+            {totalAlertsCount > 0 ? (
+              <span className="text-2xl font-extrabold font-mono text-red-400">
+                {totalAlertsCount} ACTIVE ALERTS
+              </span>
             ) : (
               <span className="text-3xl font-extrabold font-mono text-emerald-300">0 ALERTS</span>
             )}
-            <p className="text-xs text-slate-400 mt-1">Threshold alerts active for account</p>
+            <p className="text-xs text-slate-400 mt-1">
+              {totalLocations > 0 ? `${highRiskFireCount} Fire • ${deforestationAlertCount} Deforestation` : 'Waiting for monitoring data'}
+            </p>
+          </div>
+        </div>
+
+        {/* Card 4: Monitored Area */}
+        <div className="p-6 rounded-2xl glass-card space-y-4 border border-slate-800">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Monitored Area</span>
+            <div className="p-2 rounded-lg bg-cyan-950 text-cyan-400 border border-cyan-800/40">
+              <Layers className="w-5 h-5" />
+            </div>
+          </div>
+          <div>
+            <span className="text-2xl font-extrabold font-mono text-cyan-300">
+              {totalLocations > 0 ? `${totalHectaresMonitored.toLocaleString()} ha` : 'Waiting for monitoring data'}
+            </span>
+            <p className="text-xs text-slate-400 mt-1">{totalLocations} active forest zones</p>
           </div>
         </div>
 
@@ -249,79 +299,160 @@ export const DashboardPage = () => {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {monitoredLocations.map((loc) => (
-              <div 
-                key={loc.id} 
-                className="p-5 rounded-2xl glass-card border border-slate-800 space-y-3 hover:border-emerald-500/40 transition-all"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h4 className="font-bold text-slate-100 text-sm">{loc.name}</h4>
-                    <p className="text-xs font-mono text-slate-400">
-                      {loc.lat.toFixed(6)}, {loc.lng.toFixed(6)}
-                    </p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {monitoredLocations.map((loc) => {
+              const radius = loc.radiusKm || 5.0;
+              const areaHa = loc.areaHectares || Math.round(Math.PI * Math.pow(radius, 2) * 100);
+              const isEvaluating = evaluatingId === loc.id;
+              const isDeforestAlert = loc.deforestationStatus === 'ALERT';
+              const isDeforestWarning = loc.deforestationStatus === 'WARNING';
+              const isFireAlert = loc.riskLevel === 'HIGH';
+
+              return (
+                <div 
+                  key={loc.id} 
+                  className={`p-5 rounded-2xl glass-card border space-y-4 transition-all ${
+                    isDeforestAlert || isFireAlert 
+                      ? 'border-red-500/50 bg-red-950/10' 
+                      : isDeforestWarning 
+                      ? 'border-amber-500/40 bg-amber-950/10' 
+                      : 'border-slate-800 hover:border-emerald-500/40'
+                  }`}
+                >
+                  {/* Location Header */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <h4 className="font-bold text-slate-100 text-base">{loc.name}</h4>
+                        {isDeforestAlert && (
+                          <span className="px-2 py-0.5 rounded-full bg-red-950 border border-red-700 text-red-300 text-[10px] font-bold">
+                            DEFORESTATION ALERT
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-slate-400">
+                        <span>{loc.lat.toFixed(4)}, {loc.lng.toFixed(4)}</span>
+                        <span>•</span>
+                        <span className="text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/60 font-semibold text-[11px]">
+                          Radius: {radius} km (~{areaHa.toLocaleString()} ha)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      <button
+                        onClick={() => handleRefreshPrediction(loc)}
+                        disabled={isEvaluating}
+                        className="px-2.5 py-1.5 rounded-xl bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-800/60 text-xs font-semibold flex items-center space-x-1.5 transition-colors disabled:opacity-50"
+                        title="Run live weather telemetry & Sentinel-2 satellite analysis"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isEvaluating ? 'animate-spin text-emerald-400' : ''}`} />
+                        <span className="hidden sm:inline">{isEvaluating ? 'Analyzing...' : 'Run Satellite'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleRemoveLocation(loc.id)}
+                        className="p-1.5 rounded-xl bg-red-950/40 text-red-300 hover:bg-red-900/60 border border-red-800/40 transition-colors"
+                        title="Remove location"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => handleRefreshPrediction(loc)}
-                      disabled={evaluatingId === loc.id}
-                      className="p-1.5 rounded-lg bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900 border border-emerald-800/50 transition-colors"
-                      title="Refresh live weather & prediction"
-                    >
-                      <RefreshCw className={`w-4 h-4 ${evaluatingId === loc.id ? 'animate-spin' : ''}`} />
-                    </button>
+                  {/* Dual Pipeline Metrics Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs border-t border-slate-800/60 font-mono">
+                    
+                    {/* Panel 1: Wildfire Prediction (XGBoost) */}
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold flex items-center space-x-1">
+                          <Flame className="w-3 h-3 text-amber-400" />
+                          <span>Wildfire Risk</span>
+                        </span>
+                        {loc.riskLevel ? (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                            loc.riskLevel === 'HIGH' ? 'bg-red-950 text-red-300 border-red-800' :
+                            loc.riskLevel === 'MEDIUM' ? 'bg-amber-950 text-amber-300 border-amber-800' :
+                            'bg-emerald-950 text-emerald-300 border-emerald-800'
+                          }`}>
+                            {loc.riskLevel}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-500 italic">Pending</span>
+                        )}
+                      </div>
 
-                    <button
-                      onClick={() => handleRemoveLocation(loc.id)}
-                      className="p-1.5 rounded-lg bg-red-950/40 text-red-300 hover:bg-red-900/60 border border-red-800/40 transition-colors"
-                      title="Remove location"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      <div className="flex items-baseline justify-between">
+                        {loc.riskScore !== null && loc.riskScore !== undefined ? (
+                          <span className={`text-xl font-extrabold ${loc.riskScore >= 75 ? 'text-red-400' : loc.riskScore >= 40 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            {loc.riskScore}%
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 font-sans italic">Waiting for monitoring data</span>
+                        )}
+                        <span className="text-[10px] text-slate-400 font-sans">
+                          {loc.forestHealth || 'Telemetry Active'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Panel 2: Deforestation Detection (Sentinel-2 Harmonized) */}
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold flex items-center space-x-1">
+                          <Satellite className="w-3 h-3 text-cyan-400" />
+                          <span>Deforestation (S2)</span>
+                        </span>
+                        {loc.deforestationStatus ? (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                            loc.deforestationStatus === 'ALERT' ? 'bg-red-950 text-red-300 border-red-800' :
+                            loc.deforestationStatus === 'WARNING' ? 'bg-amber-950 text-amber-300 border-amber-800' :
+                            'bg-emerald-950 text-emerald-300 border-emerald-800'
+                          }`}>
+                            {loc.deforestationStatus === 'ALERT' ? 'CRITICAL LOSS' : loc.deforestationStatus === 'WARNING' ? 'MODERATE LOSS' : 'STABLE'}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-500 italic">Pending</span>
+                        )}
+                      </div>
+
+                      <div>
+                        {loc.deforestationLossPercentage !== null && loc.deforestationLossPercentage !== undefined ? (
+                          <div className="space-y-0.5">
+                            <div className="flex justify-between items-baseline">
+                              <span className="text-[11px] font-bold text-slate-200">
+                                Loss: {loc.deforestationLossHectares || 0} ha ({loc.deforestationLossPercentage}%)
+                              </span>
+                              <span className="text-[10px] text-cyan-400">
+                                {loc.deforestationConfidence ? `${loc.deforestationConfidence}% Conf.` : ''}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 flex justify-between">
+                              <span>NDVI: {loc.baselineNdvi ?? '—'} → {loc.recentNdvi ?? '—'}</span>
+                              <span className="text-slate-400">10m Res</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 font-sans italic">Waiting for monitoring data</span>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Metadata Row */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-900">
+                    <div className="flex items-center space-x-1">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Last Analyzed: {loc.lastUpdated || 'Waiting for monitoring data'}</span>
+                    </div>
+                    <span className="text-emerald-400 font-semibold font-mono">Status: {loc.status || 'ACTIVE'}</span>
                   </div>
                 </div>
-
-                {/* Prediction Metrics Display */}
-                <div className="grid grid-cols-2 gap-3 pt-2 text-xs border-t border-slate-800/60 font-mono">
-                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Fire Risk</span>
-                    {loc.riskScore !== null && loc.riskScore !== undefined ? (
-                      <span className={`text-base font-extrabold ${loc.riskScore >= 75 ? 'text-red-400' : loc.riskScore >= 40 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {loc.riskScore}%
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-slate-400 font-sans italic">Waiting for monitoring data</span>
-                    )}
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Risk Level</span>
-                    {loc.riskLevel ? (
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded border inline-block mt-0.5 ${
-                        loc.riskLevel === 'HIGH' ? 'bg-red-950 text-red-300 border-red-800' :
-                        loc.riskLevel === 'MEDIUM' ? 'bg-amber-950 text-amber-300 border-amber-800' :
-                        'bg-emerald-950 text-emerald-300 border-emerald-800'
-                      }`}>
-                        {loc.riskLevel}
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-slate-400 font-sans italic">Waiting for monitoring data</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Metadata Row */}
-                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
-                  <div className="flex items-center space-x-1">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Last Updated: {loc.lastUpdated || 'Waiting for monitoring data'}</span>
-                  </div>
-                  <span className="text-emerald-400 font-semibold font-mono">Status: {loc.status || 'ACTIVE'}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

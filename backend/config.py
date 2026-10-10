@@ -25,4 +25,14 @@ class Settings:
     # Firebase Admin SDK Credentials
     FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
 
+    # Google Earth Engine (GEE) & Deforestation Configuration
+    GEE_PROJECT_ID: str = os.getenv("GEE_PROJECT_ID", "")
+    GEE_SERVICE_ACCOUNT: str = os.getenv("GEE_SERVICE_ACCOUNT", "")
+    GEE_PRIVATE_KEY_PATH: str = os.getenv("GEE_PRIVATE_KEY_PATH", "")
+    DEFORESTATION_LOSS_THRESHOLD_PERCENT: float = float(os.getenv("DEFORESTATION_LOSS_THRESHOLD_PERCENT", "10.0"))
+    DEFORESTATION_NDVI_DROP_THRESHOLD: float = float(os.getenv("DEFORESTATION_NDVI_DROP_THRESHOLD", "0.15"))
+    DEFAULT_MONITORING_RADIUS_KM: float = float(os.getenv("DEFAULT_MONITORING_RADIUS_KM", "5.0"))
+    BASELINE_WINDOW_DAYS: int = int(os.getenv("BASELINE_WINDOW_DAYS", "180"))
+    RECENT_WINDOW_DAYS: int = int(os.getenv("RECENT_WINDOW_DAYS", "30"))
+
 settings = Settings()

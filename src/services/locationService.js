@@ -67,22 +67,54 @@ export const fetchLocationPrediction = async (lat, lng, name, userId, locationId
 };
 
 /**
+ * Fetch deforestation evaluation & Sentinel-2 change detection from backend API
+ */
+export const fetchLocationDeforestation = async (lat, lng, radiusKm, name, userId, locationId, userEmail, forceLoss = null) => {
+  try {
+    let url = `${BACKEND_API_URL}/api/deforestation/evaluate-location?lat=${lat}&lng=${lng}&radius_km=${radiusKm || 5.0}&location_name=${encodeURIComponent(name)}&user_id=${userId}&location_id=${locationId}&recipient_email=${encodeURIComponent(userEmail || 'user@forestmonitoring.org')}`;
+    if (forceLoss !== null) {
+      url += `&force_simulated_loss=${forceLoss}`;
+    }
+    const response = await fetch(url, { method: 'POST' });
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch (err) {
+    console.warn('[Location Service] Deforestation API fetch warning:', err.message);
+  }
+  return null;
+};
+
+/**
  * Save a new monitored coordinate/location associated with user UID
  */
 export const addMonitoredLocation = async (userId, locationData, userEmail = '') => {
   if (!userId) return { success: false, error: 'User ID is required' };
 
   const locationId = 'loc_' + Date.now();
+  const radiusKm = Number(locationData.radiusKm) || 5.0;
+  const areaHectares = Math.round(Math.PI * Math.pow(radiusKm, 2) * 100 * 100) / 100;
   
-  // Try fetching initial ML prediction from backend
-  const evalData = await fetchLocationPrediction(
-    locationData.lat, 
-    locationData.lng, 
-    locationData.name, 
-    userId, 
-    locationId, 
-    userEmail
-  );
+  // Try fetching initial ML prediction & satellite deforestation analysis in parallel
+  const [evalData, deforestData] = await Promise.all([
+    fetchLocationPrediction(
+      locationData.lat, 
+      locationData.lng, 
+      locationData.name, 
+      userId, 
+      locationId, 
+      userEmail
+    ),
+    fetchLocationDeforestation(
+      locationData.lat,
+      locationData.lng,
+      radiusKm,
+      locationData.name,
+      userId,
+      locationId,
+      userEmail
+    )
+  ]);
 
   const newLocation = {
     id: locationId,
@@ -90,14 +122,24 @@ export const addMonitoredLocation = async (userId, locationData, userEmail = '')
     name: locationData.name || `Location (${locationData.lat.toFixed(4)}, ${locationData.lng.toFixed(4)})`,
     lat: Number(locationData.lat),
     lng: Number(locationData.lng),
+    radiusKm: radiusKm,
+    areaHectares: areaHectares,
     addedAt: new Date().toISOString(),
     status: 'ACTIVE',
-    lastUpdated: evalData ? new Date().toLocaleString() : null,
+    lastUpdated: (evalData || deforestData) ? new Date().toLocaleString() : null,
     riskScore: evalData ? evalData.prediction.risk_score : null,
     riskLevel: evalData ? evalData.prediction.risk_level : null,
     riskProbability: evalData ? evalData.prediction.risk_probability : null,
-    forestHealth: evalData ? `${100 - Math.round(evalData.prediction.risk_probability * 30)}% Vegetation Density` : null,
-    deforestationAlerts: 'No active alerts'
+    forestHealth: deforestData ? `${100 - Math.round(deforestData.analysis.forest_loss_percentage)}% Canopy Density` : (evalData ? `${100 - Math.round(evalData.prediction.risk_probability * 30)}% Vegetation Density` : null),
+    // Deforestation Metrics
+    deforestationStatus: deforestData ? deforestData.analysis.status : null,
+    deforestationLossHectares: deforestData ? deforestData.analysis.forest_loss_hectares : null,
+    deforestationLossPercentage: deforestData ? deforestData.analysis.forest_loss_percentage : null,
+    baselineNdvi: deforestData ? deforestData.analysis.baseline_ndvi : null,
+    recentNdvi: deforestData ? deforestData.analysis.recent_ndvi : null,
+    deforestationConfidence: deforestData ? deforestData.analysis.confidence_score : null,
+    deforestationEvidence: deforestData ? deforestData.analysis.evidence : null,
+    deforestationAlerts: deforestData?.alert_triggered ? 'Active Deforestation Alert' : 'No active alerts'
   };
 
   // Sync to local storage
