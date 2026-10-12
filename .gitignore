@@ -16,6 +16,13 @@ dist-ssr
 .env
 .env.*
 !.env.example
+*.json.key
+*service_account*.json
+*service-account*.json
+*credentials*.json
+massive-current*.json
+backend/credentials/
+*.pem
 
 # Python
 __pycache__/

@@ -13,10 +13,11 @@ import {
   AlertTriangle,
   Satellite,
   Compass,
-  Layers
+  Layers,
+  Settings
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import InteractiveMap from '../components/dashboard/InteractiveMap';
 import { 
   getUserMonitoredLocations, 
@@ -98,13 +99,17 @@ export const DashboardPage = () => {
           riskScore: evalData ? evalData.prediction.risk_score : item.riskScore,
           riskLevel: evalData ? evalData.prediction.risk_level : item.riskLevel,
           riskProbability: evalData ? evalData.prediction.risk_probability : item.riskProbability,
-          forestHealth: deforestData ? `${100 - Math.round(deforestData.analysis.forest_loss_percentage)}% Canopy Density` : item.forestHealth,
+          forestHealth: deforestData ? `${100 - Math.round(deforestData.analysis.forest_loss_percentage || 0)}% Canopy Density` : item.forestHealth,
           deforestationStatus: deforestData ? deforestData.analysis.status : item.deforestationStatus,
           deforestationLossHectares: deforestData ? deforestData.analysis.forest_loss_hectares : item.deforestationLossHectares,
           deforestationLossPercentage: deforestData ? deforestData.analysis.forest_loss_percentage : item.deforestationLossPercentage,
           baselineNdvi: deforestData ? deforestData.analysis.baseline_ndvi : item.baselineNdvi,
-          recentNdvi: deforestData ? deforestData.analysis.recent_ndvi : item.recentNdvi,
+          recentNdvi: deforestData ? (deforestData.analysis.comparison_ndvi ?? deforestData.analysis.recent_ndvi) : item.recentNdvi,
           deforestationConfidence: deforestData ? deforestData.analysis.confidence_score : item.deforestationConfidence,
+          dataQuality: deforestData ? deforestData.analysis.data_quality : item.dataQuality,
+          baselineScenesCount: deforestData ? deforestData.analysis.baseline_scenes_count : item.baselineScenesCount,
+          comparisonScenesCount: deforestData ? deforestData.analysis.comparison_scenes_count : item.comparisonScenesCount,
+          observationDates: deforestData ? deforestData.analysis.observation_dates : item.observationDates,
           deforestationEvidence: deforestData ? deforestData.analysis.evidence : item.deforestationEvidence,
           deforestationAlerts: deforestData?.alert_triggered ? 'Active Deforestation Alert' : 'No active alerts'
         };
@@ -125,7 +130,9 @@ export const DashboardPage = () => {
   // Compute aggregated stats
   const totalLocations = monitoredLocations.length;
   const highRiskFireCount = monitoredLocations.filter(l => l.riskLevel === 'HIGH').length;
-  const deforestationAlertCount = monitoredLocations.filter(l => l.deforestationStatus === 'ALERT').length;
+  const deforestationAlertCount = monitoredLocations.filter(
+    l => l.deforestationStatus === 'ALERT' || l.deforestationStatus === 'CONFIRMED_DEFORESTATION'
+  ).length;
   const totalAlertsCount = highRiskFireCount + deforestationAlertCount;
   const totalHectaresMonitored = Math.round(
     monitoredLocations.reduce((sum, l) => sum + (l.areaHectares || (Math.PI * Math.pow(l.radiusKm || 5.0, 2) * 100)), 0)
@@ -159,6 +166,15 @@ export const DashboardPage = () => {
           </div>
 
           <div className="flex items-center space-x-3">
+            <Link
+              to="/settings"
+              className="px-4 py-3 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-200 hover:text-emerald-300 border border-slate-700/60 font-semibold text-sm flex items-center space-x-2 shadow-lg transition-all"
+              title="Account Settings & Change Username"
+            >
+              <Settings className="w-4 h-4 text-emerald-400" />
+              <span>Settings</span>
+            </Link>
+
             <button
               onClick={handleLogout}
               className="px-5 py-3 rounded-xl bg-red-950/60 hover:bg-red-900/80 text-red-200 border border-red-800/50 font-semibold text-sm flex items-center space-x-2 shadow-lg transition-all"
@@ -304,8 +320,9 @@ export const DashboardPage = () => {
               const radius = loc.radiusKm || 5.0;
               const areaHa = loc.areaHectares || Math.round(Math.PI * Math.pow(radius, 2) * 100);
               const isEvaluating = evaluatingId === loc.id;
-              const isDeforestAlert = loc.deforestationStatus === 'ALERT';
-              const isDeforestWarning = loc.deforestationStatus === 'WARNING';
+              const isDeforestAlert = loc.deforestationStatus === 'ALERT' || loc.deforestationStatus === 'CONFIRMED_DEFORESTATION';
+              const isDeforestWarning = loc.deforestationStatus === 'WARNING' || loc.deforestationStatus === 'POTENTIAL_FOREST_LOSS';
+              const isDeforestInsufficient = loc.deforestationStatus === 'INSUFFICIENT_DATA';
               const isFireAlert = loc.riskLevel === 'HIGH';
 
               return (
@@ -407,11 +424,12 @@ export const DashboardPage = () => {
                         </span>
                         {loc.deforestationStatus ? (
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                            loc.deforestationStatus === 'ALERT' ? 'bg-red-950 text-red-300 border-red-800' :
-                            loc.deforestationStatus === 'WARNING' ? 'bg-amber-950 text-amber-300 border-amber-800' :
+                            isDeforestAlert ? 'bg-red-950 text-red-300 border-red-800' :
+                            isDeforestWarning ? 'bg-amber-950 text-amber-300 border-amber-800' :
+                            isDeforestInsufficient ? 'bg-slate-800 text-slate-300 border-slate-700' :
                             'bg-emerald-950 text-emerald-300 border-emerald-800'
                           }`}>
-                            {loc.deforestationStatus === 'ALERT' ? 'CRITICAL LOSS' : loc.deforestationStatus === 'WARNING' ? 'MODERATE LOSS' : 'STABLE'}
+                            {isDeforestAlert ? 'CONFIRMED LOSS' : isDeforestWarning ? 'POTENTIAL LOSS' : isDeforestInsufficient ? 'NO SATELLITE DATA' : 'STABLE CANOPY'}
                           </span>
                         ) : (
                           <span className="text-[10px] text-slate-500 italic">Pending</span>
@@ -431,8 +449,14 @@ export const DashboardPage = () => {
                             </div>
                             <div className="text-[10px] text-slate-400 flex justify-between">
                               <span>NDVI: {loc.baselineNdvi ?? '—'} → {loc.recentNdvi ?? '—'}</span>
-                              <span className="text-slate-400">10m Res</span>
+                              <span className="text-slate-400">{loc.dataQuality ? loc.dataQuality.replace('_', ' ') : '10m Res'}</span>
                             </div>
+                            {(loc.baselineScenesCount !== undefined && loc.baselineScenesCount !== null) && (
+                              <div className="text-[9px] text-slate-500 flex justify-between pt-0.5 border-t border-slate-900">
+                                <span>Scenes: {loc.baselineScenesCount} base / {loc.comparisonScenesCount ?? 0} comp</span>
+                                <span className="text-emerald-500/80">Harmonized S2</span>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <span className="text-[11px] text-slate-400 font-sans italic">Waiting for monitoring data</span>

@@ -1,4 +1,10 @@
 import os
+from dotenv import load_dotenv
+
+# Automatically load variables from .env in project root or current directory
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"), override=True)
+load_dotenv(override=False)
+
 from pydantic_settings import BaseSettings
 
 class Settings:
@@ -22,17 +28,39 @@ class Settings:
     ALERT_EMAIL_SENDER: str = os.getenv("ALERT_EMAIL_SENDER", "alerts@forestmonitoring.org")
     ALERT_COOLDOWN_HOURS: int = int(os.getenv("ALERT_COOLDOWN_HOURS", "24"))
 
-    # Firebase Admin SDK Credentials
+    # Firebase Configuration
+    FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "wildfire-project-5d6dc")
     FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
 
     # Google Earth Engine (GEE) & Deforestation Configuration
-    GEE_PROJECT_ID: str = os.getenv("GEE_PROJECT_ID", "")
-    GEE_SERVICE_ACCOUNT: str = os.getenv("GEE_SERVICE_ACCOUNT", "")
-    GEE_PRIVATE_KEY_PATH: str = os.getenv("GEE_PRIVATE_KEY_PATH", "")
+    GEE_PROJECT_ID: str = os.getenv("GEE_PROJECT_ID", "massive-current-509710-r9")
+    GEE_SERVICE_ACCOUNT: str = os.getenv(
+        "GEE_SERVICE_ACCOUNT",
+        "forest-monitoring-backend@massive-current-509710-r9.iam.gserviceaccount.com"
+    )
+    GEE_COLLECTION: str = os.getenv("GEE_COLLECTION", "COPERNICUS/S2_SR_HARMONIZED")
+    GEE_MAX_CLOUD_COVER: float = float(os.getenv("GEE_MAX_CLOUD_COVER", "40.0"))
     DEFORESTATION_LOSS_THRESHOLD_PERCENT: float = float(os.getenv("DEFORESTATION_LOSS_THRESHOLD_PERCENT", "10.0"))
     DEFORESTATION_NDVI_DROP_THRESHOLD: float = float(os.getenv("DEFORESTATION_NDVI_DROP_THRESHOLD", "0.15"))
     DEFAULT_MONITORING_RADIUS_KM: float = float(os.getenv("DEFAULT_MONITORING_RADIUS_KM", "5.0"))
     BASELINE_WINDOW_DAYS: int = int(os.getenv("BASELINE_WINDOW_DAYS", "180"))
     RECENT_WINDOW_DAYS: int = int(os.getenv("RECENT_WINDOW_DAYS", "30"))
+
+    @property
+    def GEE_PRIVATE_KEY_PATH(self) -> str:
+        """Resolves Earth Engine Service Account private key file path securely."""
+        env_path = os.getenv("GEE_PRIVATE_KEY_PATH", "")
+        if env_path and os.path.exists(env_path):
+            return env_path
+        
+        candidates = [
+            r"d:\WildFire\massive-current-509710-r9-d4d26bd6b08b.json",
+            os.path.join(os.path.dirname(__file__), "..", "..", "massive-current-509710-r9-d4d26bd6b08b.json"),
+            os.path.join(os.path.dirname(__file__), "credentials", "service-account.json"),
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return os.path.abspath(c)
+        return ""
 
 settings = Settings()

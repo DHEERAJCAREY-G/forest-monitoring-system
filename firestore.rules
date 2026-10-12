@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // User profile documents in `users` collection
+    // Users can only read and update their own document matching their Firebase auth UID.
+    // Changing immutable fields (uid, email) is prohibited.
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['uid', 'email']));
+      allow delete: if false;
+    }
+
+    // Monitored forest locations in `monitored_locations` collection
+    // Enforces user data isolation: users can only access locations where userId == request.auth.uid
+    match /monitored_locations/{locationId} {
+      allow read: if request.auth != null && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // Deforestation and wildfire alert dispatches in `deforestation_alerts`
+    // Users can read alerts belonging to their UID; writes are restricted to backend service account
+    match /deforestation_alerts/{alertId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Deforestation historical analysis results
+    match /deforestation_analyses/{analysisId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+  }
+}

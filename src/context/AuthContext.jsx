@@ -7,7 +7,8 @@ import {
   loginUser, 
   logoutUser, 
   sendPasswordReset,
-  resendVerificationEmail 
+  resendVerificationEmail,
+  updateUserDisplayName
 } from '../services/authService';
 
 const AuthContext = createContext(null);
@@ -110,6 +111,20 @@ export const AuthProvider = ({ children }) => {
     return await sendPasswordReset(email);
   };
 
+  const updateUsername = async (newDisplayName) => {
+    setAuthError(null);
+    const result = await updateUserDisplayName(newDisplayName);
+    if (result.success) {
+      if (auth.currentUser) {
+        setCurrentUser({ ...auth.currentUser });
+        await fetchUserProfile(auth.currentUser.uid);
+      }
+    } else {
+      setAuthError(result.error);
+    }
+    return result;
+  };
+
   const value = {
     currentUser,
     userProfile,
@@ -122,6 +137,7 @@ export const AuthProvider = ({ children }) => {
     resetPassword,
     resendVerification,
     reloadUser,
+    updateUsername,
     isAuthenticated: !!(currentUser && currentUser.emailVerified)
   };
 

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapPin, Plus, Navigation, Layers, CheckCircle2, Compass, CircleDot } from 'lucide-react';
+import '@maptiler/sdk/dist/maptiler-sdk.css';
+import { MaptilerLayer } from '@maptiler/leaflet-maptilersdk';
+import { MapPin, Plus, Navigation, Layers, CheckCircle2, Compass, CircleDot, Globe } from 'lucide-react';
 
 // Custom Leaflet Pin Icon Fix for React-Leaflet
 const createCustomIcon = (color = '#10b981') => {
@@ -39,13 +41,16 @@ const createCustomIcon = (color = '#10b981') => {
 const activePinIcon = createCustomIcon('#10b981'); // Emerald
 const selectedPinIcon = createCustomIcon('#f59e0b'); // Amber
 
-// Map click handler sub-component
+// Map click handler sub-component with coordinate wrapping (-180 to 180)
 function LocationPickerMarker({ selectedCoords, setSelectedCoords }) {
   useMapEvents({
     click(e) {
+      // Leaflet can return unwrapped longitudes (e.g. > 180 or < -180) when user scrolls past world copy.
+      // e.latlng.wrap() normalizes longitude strictly to [-180, 180] and clamps latitude to [-90, 90].
+      const wrapped = e.latlng.wrap();
       setSelectedCoords({
-        lat: Number(e.latlng.lat.toFixed(4)),
-        lng: Number(e.latlng.lng.toFixed(4))
+        lat: Number(wrapped.lat.toFixed(4)),
+        lng: Number(wrapped.lng.toFixed(4))
       });
     },
   });
@@ -62,6 +67,38 @@ function LocationPickerMarker({ selectedCoords, setSelectedCoords }) {
   ) : null;
 }
 
+// MapTiler Hybrid Layer sub-component with explicit English language configuration
+function MapTilerHybridLayer({ apiKey }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!apiKey) return;
+    let mtLayer = null;
+    try {
+      mtLayer = new MaptilerLayer({
+        apiKey: apiKey,
+        style: 'hybrid', // Satellite imagery + roads + labels
+        language: 'en'   // Documented English language configuration
+      });
+      mtLayer.addTo(map);
+    } catch (err) {
+      console.warn('[InteractiveMap] MapTiler layer init warning:', err);
+    }
+
+    return () => {
+      if (mtLayer) {
+        try {
+          map.removeLayer(mtLayer);
+        } catch (e) {
+          // ignore cleanup
+        }
+      }
+    };
+  }, [map, apiKey]);
+
+  return null;
+}
+
 export const InteractiveMap = ({ monitoredLocations, onAddLocation }) => {
   const defaultCenter = [0, 0];
   const [selectedCoords, setSelectedCoords] = useState({ lat: -3.4653, lng: -62.2159 }); // Amazon Rainforest default
@@ -70,13 +107,19 @@ export const InteractiveMap = ({ monitoredLocations, onAddLocation }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState('');
 
-  // Preset forest locations for quick selection
+  // MapTiler API Key from secure environment variable
+  const maptilerApiKey = import.meta.env.VITE_MAPTILER_API_KEY || '';
+
+  // Preset forest locations across world regions (India, China, Japan, Korea, Europe, Americas)
   const presets = [
     { name: 'Amazon Rainforest Zone', lat: -3.4653, lng: -62.2159, radius: 5.0 },
-    { name: 'Western Ghats Sanctuary', lat: 10.1632, lng: 77.0118, radius: 2.0 },
-    { name: 'Black Forest Reserve', lat: 48.0537, lng: 8.2037, radius: 5.0 },
-    { name: 'Congo Basin Sector B', lat: -0.2280, lng: 15.8277, radius: 10.0 },
-    { name: 'Pacific Northwest Reserve', lat: 46.8523, lng: -121.7603, radius: 5.0 }
+    { name: 'Western Ghats Sanctuary (India)', lat: 10.1632, lng: 77.0118, radius: 2.0 },
+    { name: 'Sichuan Forest Reserve (China)', lat: 30.5728, lng: 103.9215, radius: 5.0 },
+    { name: 'Yakushima Ancient Forest (Japan)', lat: 30.3444, lng: 130.5286, radius: 5.0 },
+    { name: 'Seoraksan Biosphere (South Korea)', lat: 38.1192, lng: 128.4656, radius: 5.0 },
+    { name: 'Black Forest Reserve (Europe)', lat: 48.0537, lng: 8.2037, radius: 5.0 },
+    { name: 'Pacific Northwest Reserve (North America)', lat: 46.8523, lng: -121.7603, radius: 5.0 },
+    { name: 'Congo Basin Sector B', lat: -0.2280, lng: 15.8277, radius: 10.0 }
   ];
 
   const handleSelectPreset = (preset) => {
@@ -121,21 +164,28 @@ export const InteractiveMap = ({ monitoredLocations, onAddLocation }) => {
           </p>
         </div>
 
-        {/* Quick Presets Dropdown */}
-        <div className="flex items-center space-x-2">
-          <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider shrink-0">Preset Zones:</span>
-          <select
-            onChange={(e) => {
-              const p = presets[e.target.value];
-              if (p) handleSelectPreset(p);
-            }}
-            className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          >
-            <option value="">-- Choose Forest Region --</option>
-            {presets.map((p, idx) => (
-              <option key={idx} value={idx}>{p.name} ({p.lat}, {p.lng})</option>
-            ))}
-          </select>
+        {/* Quick Presets Dropdown & Language Badge */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/80 border border-emerald-800/60 text-emerald-300 text-xs font-semibold">
+            <Globe className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Labels: English (Global)</span>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider shrink-0">Preset Zones:</span>
+            <select
+              onChange={(e) => {
+                const p = presets[e.target.value];
+                if (p) handleSelectPreset(p);
+              }}
+              className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="">-- Choose Forest Region --</option>
+              {presets.map((p, idx) => (
+                <option key={idx} value={idx}>{p.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -154,11 +204,26 @@ export const InteractiveMap = ({ monitoredLocations, onAddLocation }) => {
           scrollWheelZoom={true}
           style={{ height: '100%', width: '100%' }}
         >
-          {/* ESRI World Imagery / OpenStreetMap Tiles */}
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
+          {/* Tile Layer Provider with Global English Labels */}
+          {maptilerApiKey ? (
+            <MapTilerHybridLayer apiKey={maptilerApiKey} />
+          ) : (
+            <>
+              {/* High-Resolution Satellite Base Layer (Esri World Imagery) */}
+              <TileLayer
+                attribution='&copy; <a href="https://www.esri.com/">Esri</a>, Earthstar Geographics'
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                maxZoom={19}
+              />
+              {/* Esri World Reference Boundaries & English Labels Overlay (Watermark-free, key-free) */}
+              <TileLayer
+                attribution='&copy; <a href="https://www.esri.com/">Esri</a>, DeLorme, USGS'
+                url="https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                zIndex={650}
+                maxZoom={19}
+              />
+            </>
+          )}
 
           {/* Location Picker Click Event */}
           <LocationPickerMarker 
@@ -184,8 +249,8 @@ export const InteractiveMap = ({ monitoredLocations, onAddLocation }) => {
           {/* Render User's Monitored Locations Pins & Defined Radius Circles */}
           {monitoredLocations.map((loc) => {
             const locRadius = loc.radiusKm || 5.0;
-            const isAlert = loc.deforestationStatus === 'ALERT' || loc.riskLevel === 'HIGH';
-            const isWarning = loc.deforestationStatus === 'WARNING' || loc.riskLevel === 'MEDIUM';
+            const isAlert = loc.deforestationStatus === 'ALERT' || loc.deforestationStatus === 'CONFIRMED_DEFORESTATION' || loc.riskLevel === 'HIGH';
+            const isWarning = loc.deforestationStatus === 'WARNING' || loc.deforestationStatus === 'POTENTIAL_FOREST_LOSS' || loc.riskLevel === 'MEDIUM';
             const circleColor = isAlert ? '#ef4444' : isWarning ? '#f59e0b' : '#10b981';
 
             return (
@@ -224,7 +289,7 @@ export const InteractiveMap = ({ monitoredLocations, onAddLocation }) => {
                         </p>
                         <p className="flex justify-between">
                           <span className="text-slate-500 font-medium">Deforestation:</span>
-                          <span className={`font-bold ${loc.deforestationStatus === 'ALERT' ? 'text-red-600' : loc.deforestationStatus === 'WARNING' ? 'text-amber-600' : 'text-emerald-700'}`}>
+                          <span className={`font-bold ${(loc.deforestationStatus === 'ALERT' || loc.deforestationStatus === 'CONFIRMED_DEFORESTATION') ? 'text-red-600' : (loc.deforestationStatus === 'WARNING' || loc.deforestationStatus === 'POTENTIAL_FOREST_LOSS') ? 'text-amber-600' : loc.deforestationStatus === 'INSUFFICIENT_DATA' ? 'text-slate-500' : 'text-emerald-700'}`}>
                             {loc.deforestationStatus || 'Waiting for monitoring data'}
                           </span>
                         </p>

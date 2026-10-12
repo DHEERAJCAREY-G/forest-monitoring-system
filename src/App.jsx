@@ -11,6 +11,7 @@ import SignupPage from './pages/SignupPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import DashboardPage from './pages/DashboardPage';
+import SettingsPage from './pages/SettingsPage';
 
 // Route Guards
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -66,6 +67,15 @@ export const App = () => {
                 element={
                   <ProtectedRoute>
                     <DashboardPage />
+                  </ProtectedRoute>
+                } 
+              />
+
+              <Route 
+                path="/settings" 
+                element={
+                  <ProtectedRoute>
+                    <SettingsPage />
                   </ProtectedRoute>
                 } 
               />

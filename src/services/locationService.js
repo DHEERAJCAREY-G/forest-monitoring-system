@@ -69,13 +69,39 @@ export const fetchLocationPrediction = async (lat, lng, name, userId, locationId
 /**
  * Fetch deforestation evaluation & Sentinel-2 change detection from backend API
  */
-export const fetchLocationDeforestation = async (lat, lng, radiusKm, name, userId, locationId, userEmail, forceLoss = null) => {
+export const fetchLocationDeforestation = async (
+  lat, 
+  lng, 
+  radiusKm, 
+  name, 
+  userId, 
+  locationId, 
+  userEmail, 
+  forceLoss = null, 
+  polygonCoordinates = null
+) => {
   try {
-    let url = `${BACKEND_API_URL}/api/deforestation/evaluate-location?lat=${lat}&lng=${lng}&radius_km=${radiusKm || 5.0}&location_name=${encodeURIComponent(name)}&user_id=${userId}&location_id=${locationId}&recipient_email=${encodeURIComponent(userEmail || 'user@forestmonitoring.org')}`;
+    const payload = {
+      latitude: lat,
+      longitude: lng,
+      radius_km: radiusKm || 5.0,
+      polygon_coordinates: polygonCoordinates,
+      location_name: name,
+      user_id: userId,
+      location_id: locationId,
+      recipient_email: userEmail || 'user@forestmonitoring.org'
+    };
     if (forceLoss !== null) {
-      url += `&force_simulated_loss=${forceLoss}`;
+      payload.force_simulated_loss = forceLoss;
     }
-    const response = await fetch(url, { method: 'POST' });
+
+    const response = await fetch(`${BACKEND_API_URL}/api/deforestation/evaluate-location`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
     if (response.ok) {
       return await response.json();
     }
@@ -112,7 +138,9 @@ export const addMonitoredLocation = async (userId, locationData, userEmail = '')
       locationData.name,
       userId,
       locationId,
-      userEmail
+      userEmail,
+      null,
+      locationData.polygon_coordinates || null
     )
   ]);
 
@@ -130,14 +158,18 @@ export const addMonitoredLocation = async (userId, locationData, userEmail = '')
     riskScore: evalData ? evalData.prediction.risk_score : null,
     riskLevel: evalData ? evalData.prediction.risk_level : null,
     riskProbability: evalData ? evalData.prediction.risk_probability : null,
-    forestHealth: deforestData ? `${100 - Math.round(deforestData.analysis.forest_loss_percentage)}% Canopy Density` : (evalData ? `${100 - Math.round(evalData.prediction.risk_probability * 30)}% Vegetation Density` : null),
+    forestHealth: deforestData ? `${100 - Math.round(deforestData.analysis.forest_loss_percentage || 0)}% Canopy Density` : (evalData ? `${100 - Math.round(evalData.prediction.risk_probability * 30)}% Vegetation Density` : null),
     // Deforestation Metrics
     deforestationStatus: deforestData ? deforestData.analysis.status : null,
     deforestationLossHectares: deforestData ? deforestData.analysis.forest_loss_hectares : null,
     deforestationLossPercentage: deforestData ? deforestData.analysis.forest_loss_percentage : null,
     baselineNdvi: deforestData ? deforestData.analysis.baseline_ndvi : null,
-    recentNdvi: deforestData ? deforestData.analysis.recent_ndvi : null,
+    recentNdvi: deforestData ? (deforestData.analysis.comparison_ndvi || deforestData.analysis.recent_ndvi) : null,
     deforestationConfidence: deforestData ? deforestData.analysis.confidence_score : null,
+    dataQuality: deforestData ? deforestData.analysis.data_quality : null,
+    baselineScenesCount: deforestData ? deforestData.analysis.baseline_scenes_count : null,
+    comparisonScenesCount: deforestData ? deforestData.analysis.comparison_scenes_count : null,
+    observationDates: deforestData ? deforestData.analysis.observation_dates : null,
     deforestationEvidence: deforestData ? deforestData.analysis.evidence : null,
     deforestationAlerts: deforestData?.alert_triggered ? 'Active Deforestation Alert' : 'No active alerts'
   };

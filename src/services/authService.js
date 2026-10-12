@@ -268,3 +268,62 @@ export const logoutUser = async () => {
     return { success: false, error: error.message };
   }
 };
+
+/**
+ * Update authenticated user's display name / username in both Firebase Auth and Firestore.
+ * Preserves user UID, email address, password, saved locations, historical analyses, and alerts.
+ */
+export const updateUserDisplayName = async (newDisplayName) => {
+  if (!auth.currentUser) {
+    return { success: false, error: 'No active authenticated session found. Please log in.' };
+  }
+
+  const trimmed = (newDisplayName || '').trim();
+  if (!trimmed) {
+    return { success: false, error: 'Username cannot be empty.' };
+  }
+  if (trimmed.length < 2) {
+    return { success: false, error: 'Username must be at least 2 characters long.' };
+  }
+  if (trimmed.length > 50) {
+    return { success: false, error: 'Username must not exceed 50 characters.' };
+  }
+  // Validate characters (letters, numbers, spaces, underscores, hyphens, dots)
+  const usernameRegex = /^[a-zA-Z0-9\s._-]+$/;
+  if (!usernameRegex.test(trimmed)) {
+    return { success: false, error: 'Username can only contain letters, numbers, spaces, dots, hyphens, and underscores.' };
+  }
+
+  const user = auth.currentUser;
+
+  try {
+    // 1. Update Firebase Authentication profile
+    await updateProfile(user, { displayName: trimmed });
+
+    // 2. Synchronize Firestore users document
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      await setDoc(userDocRef, {
+        fullName: trimmed,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (firestoreError) {
+      console.warn('[Auth Service] Firestore profile sync warning:', firestoreError.message);
+    }
+
+    // 3. Reload user to ensure auth state has fresh token/profile
+    await user.reload();
+
+    return {
+      success: true,
+      displayName: trimmed,
+      message: 'Username updated successfully!'
+    };
+  } catch (error) {
+    console.error('[Auth Service] Update display name error:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to update username. Please try again.'
+    };
+  }
+};

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { TreePine, LogOut, Activity } from 'lucide-react';
+import { TreePine, LogOut, Activity, Settings } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export const Navbar = () => {
@@ -36,7 +36,7 @@ export const Navbar = () => {
         {/* Navigation Actions */}
         <nav className="flex items-center space-x-3">
           {currentUser ? (
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2 sm:space-x-3">
               <Link 
                 to="/dashboard" 
                 className={`flex items-center space-x-2 text-sm px-3 py-1.5 rounded-lg transition-colors ${
@@ -46,20 +46,37 @@ export const Navbar = () => {
                 }`}
               >
                 <Activity className="w-4 h-4 text-emerald-400" />
-                <span className="font-medium">Dashboard</span>
+                <span className="font-medium hidden sm:inline">Dashboard</span>
+              </Link>
+
+              <Link 
+                to="/settings" 
+                className={`flex items-center space-x-2 text-sm px-3 py-1.5 rounded-lg transition-colors ${
+                  isActive('/settings') 
+                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60' 
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
+                }`}
+                title="Account Settings"
+              >
+                <Settings className="w-4 h-4 text-emerald-400" />
+                <span className="font-medium hidden sm:inline">Settings</span>
               </Link>
 
               {/* User Identity Chip */}
-              <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 rounded-full pl-2 pr-3 py-1 text-xs">
+              <Link
+                to="/settings"
+                title="View & Edit Profile in Settings"
+                className="flex items-center space-x-2 bg-slate-900 hover:bg-slate-800/80 border border-slate-800 hover:border-emerald-800/60 rounded-full pl-2 pr-3 py-1 text-xs transition-colors"
+              >
                 <div className="w-6 h-6 rounded-full bg-emerald-700/50 text-emerald-300 flex items-center justify-center font-bold">
                   {(userProfile?.fullName || currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}
                 </div>
-                <div className="hidden sm:block text-left">
-                  <p className="font-semibold text-slate-200 truncate max-w-[140px]">
+                <div className="hidden md:block text-left">
+                  <p className="font-semibold text-slate-200 truncate max-w-[120px]">
                     {userProfile?.fullName || currentUser.displayName || currentUser.email?.split('@')[0]}
                   </p>
                 </div>
-              </div>
+              </Link>
 
               {/* Logout Button */}
               <button

@@ -116,10 +116,22 @@ Please review the monitoring dashboard for more information.
 # Dedicated alert deduplication tracking for deforestation
 _deforestation_alert_history = {}
 
-def should_send_deforestation_alert_email(user_id: str, location_id: str, current_loss_pct: float) -> bool:
+# Persistent set of sent detection IDs to prevent duplicate alert emails
+_sent_detection_ids = set()
+
+
+def should_send_deforestation_alert_email(
+    user_id: str, 
+    location_id: str, 
+    current_loss_pct: float,
+    detection_id: Optional[str] = None
+) -> bool:
     """
-    Deduplication logic for Deforestation Alerts with configurable cooldown.
+    Deduplication logic for Deforestation Alerts with detection ID check and configurable cooldown.
     """
+    if detection_id and detection_id in _sent_detection_ids:
+        return False
+
     key = f"deforest_{user_id}_{location_id}"
     now = datetime.datetime.now(datetime.timezone.utc)
 
@@ -129,6 +141,8 @@ def should_send_deforestation_alert_email(user_id: str, location_id: str, curren
             "last_loss_pct": current_loss_pct,
             "above_threshold": True
         }
+        if detection_id:
+            _sent_detection_ids.add(detection_id)
         return True
 
     record = _deforestation_alert_history[key]
@@ -140,12 +154,16 @@ def should_send_deforestation_alert_email(user_id: str, location_id: str, curren
         record["last_alert_time"] = now
         record["last_loss_pct"] = current_loss_pct
         record["above_threshold"] = True
+        if detection_id:
+            _sent_detection_ids.add(detection_id)
         return True
 
     # If cooldown period has elapsed
     if now - last_time >= cooldown_delta:
         record["last_alert_time"] = now
         record["last_loss_pct"] = current_loss_pct
+        if detection_id:
+            _sent_detection_ids.add(detection_id)
         return True
 
     return False
@@ -172,37 +190,51 @@ def send_deforestation_alert_email(
     baseline_ndvi: float,
     recent_ndvi: float,
     confidence_score: float,
-    cloud_cover_pct: float = 10.0
+    cloud_cover_pct: float = 10.0,
+    observation_period: Optional[str] = None,
+    detection_id: Optional[str] = None,
+    dashboard_url: str = "http://localhost:5173/dashboard"
 ) -> bool:
     """
-    Sends a Deforestation Alert Email notification comparing Sentinel-2 baseline vs. recent NDVI.
-    Applies deduplication cooldown to prevent notification fatigue.
+    Sends a Deforestation Alert Email notification comparing Sentinel-2 baseline vs. recent observation.
+    Clearly labels result as POTENTIAL FOREST LOSS rather than confirmed deforestation.
+    Applies deduplication, stable detection ID check, and records alert status in Firestore.
     """
-    if not should_send_deforestation_alert_email(user_id, location_id, float(loss_pct)):
-        print(f"[Email Service] Deforestation alert email suppressed for {location_name} (Location ID: {location_id}) - Cooldown Active.")
+    stable_det_id = detection_id or f"det_{user_id}_{location_id}_{int(datetime.datetime.now().timestamp() // 3600)}"
+    obs_period_str = observation_period or "Recent vs. Baseline Observation Window"
+
+    if not should_send_deforestation_alert_email(user_id, location_id, float(loss_pct), stable_det_id):
+        print(f"[Email Service] Deforestation alert email suppressed for {location_name} (Location ID: {location_id}) - Cooldown / Deduplication Active.")
         return False
 
     timestamp_str = datetime.datetime.now().strftime("%d %b %Y, %I:%M %p")
-    subject = "🚨 Forest Deforestation Alert — Monitored Area"
+    subject = f"⚠️ Potential Forest Loss Alert — {location_name}"
 
-    message_body = f"""Significant canopy reduction and deforestation activity has been detected in one of your monitored forest areas via Sentinel-2 satellite analysis.
+    message_body = f"""Potential forest-cover loss has been detected in one of your monitored forest areas via Sentinel-2 satellite analysis.
+
+IMPORTANT CLASSIFICATION NOTE:
+This alert is classified as POTENTIAL FOREST LOSS rather than confirmed deforestation. Satellite canopy reduction may be influenced by seasonal foliage changes or localized thinning. Ground-level validation or high-resolution optical corroboration is recommended.
 
 MONITORED ZONE:
-• Location: {location_name}
+• Monitoring Area: {location_name}
 • Center Coordinates: {lat:.6f}, {lng:.6f}
 • Monitoring Radius: {radius_km:.1f} km
 • Total Monitored Area: {total_area_ha:,.2f} hectares
 
-DEFORESTATION ANALYSIS:
-• Estimated Forest Loss: {loss_ha:,.2f} hectares ({loss_pct:.2f}% of monitored zone)
+DEFORESTATION DETECTION ANALYSIS:
+• Observation Period: {obs_period_str}
+• Estimated Potential Loss: {loss_ha:,.2f} hectares ({loss_pct:.2f}% of monitored zone)
 • Historical Baseline NDVI: {baseline_ndvi:.4f}
 • Recent Observation NDVI: {recent_ndvi:.4f}
 • Net Canopy Drop (Delta-NDVI): {max(0.0, baseline_ndvi - recent_ndvi):.4f}
 • Detection Confidence: {confidence_score:.1f}%
 • Cloud Cover During Observation: {cloud_cover_pct:.1f}%
+• Detection Reference ID: {stable_det_id}
 • Analysis Timestamp: {timestamp_str}
 
-Please review your interactive forest monitoring dashboard for detailed satellite overlays and risk metrics.
+INTERACTIVE DASHBOARD:
+Review full satellite overlays and time-series vegetation graphs at:
+{dashboard_url}
 """
 
     _safe_print("\n" + "=" * 60)
@@ -211,6 +243,8 @@ Please review your interactive forest monitoring dashboard for detailed satellit
     _safe_print(f"Subject: {subject}")
     _safe_print(message_body)
     _safe_print("=" * 60 + "\n")
+
+    email_delivered = False
 
     # Send SMTP Email if SMTP credentials are provided
     if settings.SMTP_USER and settings.SMTP_PASSWORD:
@@ -226,8 +260,31 @@ Please review your interactive forest monitoring dashboard for detailed satellit
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.send_message(msg)
             server.quit()
+            email_delivered = True
             print(f"[Email Service] Successfully sent Deforestation SMTP email to {recipient_email}")
         except Exception as e:
             print(f"[Email Service SMTP Error] {e}")
+    else:
+        # In development / test mode without external SMTP credentials
+        email_delivered = True
+
+    # Record detection and email delivery status in Firestore
+    try:
+        from backend.firebase_service import record_deforestation_alert
+        record_deforestation_alert(
+            detection_id=stable_det_id,
+            user_id=user_id,
+            location_id=location_id,
+            location_name=location_name,
+            observation_period=obs_period_str,
+            affected_area_ha=loss_ha,
+            loss_pct=loss_pct,
+            recipient_email=recipient_email,
+            email_delivered=email_delivered,
+            confidence_score=confidence_score
+        )
+    except Exception as e:
+        print(f"[Email Service] Firestore alert recording warning: {e}")
 
     return True
+
